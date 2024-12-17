@@ -5587,7 +5587,7 @@ Supplement	Regenerated the 4.04 distribution to correct a non-
 
 		fix 00DIST file <space> -> tabs
 
-4.9?.?		????????? ??, ????
+4.99.4		November 18, 2024
 
 		fix version parser for clang (lsof-org#305) (#306)
 
@@ -5607,6 +5607,14 @@ Supplement	Regenerated the 4.04 distribution to correct a non-
 
 		[linux] Linux 6.9 changed the pidfs appearence in procfs. Try
 		to maintain original output in lsof (#317)
+
+		[linux] closefrom_shim: Add optimized fallback for platforms
+		without closefrom or close_range (#316)
+
+		lib/misc.c: fix build against -std=c23 (`void (*)()`) changed
+		the meaning) (#327)
+
+4.9?.?		????????? ??, ????
 
 
 Vic Abell <abe@purdue.edu>
