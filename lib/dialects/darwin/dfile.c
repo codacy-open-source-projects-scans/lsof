@@ -153,7 +153,7 @@ void enter_vnode_info(
      */
     vip->vip_path[sizeof(vip->vip_path) - 1] = '\0';
     if (vip->vip_path[0] != '\0') {
-        Lf->V_path = mkstrcpy(vip->vip_path, (MALLOC_S *)NULL);
+        enter_nm(ctx, vip->vip_path);
     }
     /*
      * Save node number.
@@ -242,17 +242,6 @@ void err2nm(struct lsof_context *ctx, /* context */
 }
 
 /*
- * print_v_path() -- print vnode's path
- */
-int print_v_path(struct lsof_context *ctx, struct lfile *lf) {
-    if (lf->V_path) {
-        safestrprt(lf->V_path, stdout, 0);
-        return (1);
-    }
-    return (0);
-}
-
-/*
  * process_atalk() -- process an Apple Talk file
  */
 void process_atalk(struct lsof_context *ctx, /* context */
@@ -271,6 +260,20 @@ void process_fsevents(struct lsof_context *ctx, /* context */
                       int32_t fd)               /* FD */
 {
     Lf->type = LSOF_FILE_FSEVENTS;
+}
+
+/*
+ *
+ * process_fsevents() -- process a network policy file
+ * see also -
+ https://github.com/apple-opensource/lsof/blob/da09c8c6436286e5bd8c400b42e86b54404f12a7/lsof/dialects/darwin/libproc/dnetpolicy.c
+ */
+
+void process_netpolicy(struct lsof_context *ctx, /* context */
+                       int pid,                  /* PID */
+                       int32_t fp)               /* fd */
+{
+    Lf->type = LSOF_FILE_NPOLICY;
 }
 
 /*
@@ -612,3 +615,4 @@ void process_fileport_vnode(struct lsof_context *ctx, /* context */
     process_vnode_common(ctx, &vi);
 }
 #endif /* PROC_PIDLISTFILEPORTS */
+
