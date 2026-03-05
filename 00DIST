@@ -5622,7 +5622,7 @@ Supplement	Regenerated the 4.04 distribution to correct a non-
 		[linux] fix potential null pointer deference, reported by
 		@mono-trip (#332)
 
-4.9?.?		????????? ??, ????
+4.99.6		March 4, 2026
 
 		[darwin] parse and print NETPOLICY FDTYPE properly by @neek78 (#347)
 
@@ -5639,9 +5639,16 @@ Supplement	Regenerated the 4.04 distribution to correct a non-
 		[aix] Fix AIX dialect to work with context refactor by @uptycs-rmack
 		(#338)
 
-		[freebsd] Update supported FreeBSD versions] by @yasuhirokimura (#337)
+		[freebsd] Update supported FreeBSD versions by @yasuhirokimura (#337)
 
 		Fix null pointer exception by @admardare-cyber (#336)
+
+		[freebsd] Fix freebsd 15 compat due to rpc and sysctl changes in kernel
+		headers
+
+		[darwin] File name is now properly saved in liblsof (#348)
+
+4.9?.?		????????? ??, ????
 
 Vic Abell <abe@purdue.edu>
 July 14, 2018
