@@ -269,6 +269,8 @@ enum lsof_error lsof_gather(struct lsof_context *ctx,
     int i;
     struct lsof_selection *selections;
     size_t num_selections = 0;
+    struct lsof_process *user_procs = NULL;
+    struct lsof_result *res = NULL;
 
     if (!result) {
         ret = LSOF_ERROR_INVALID_ARGUMENT;
@@ -298,10 +300,20 @@ enum lsof_error lsof_gather(struct lsof_context *ctx,
     }
 
     /* Fill result */
-    struct lsof_result *res =
-        (struct lsof_result *)malloc(sizeof(struct lsof_result));
-    struct lsof_process *user_procs =
+    res = (struct lsof_result *)malloc(sizeof(struct lsof_result));
+    if (!res) {
+        ret = LSOF_ERROR_NO_MEMORY;
+        goto cleanup;
+    }
+    memset(res, 0, sizeof(struct lsof_result));
+
+    user_procs =
         (struct lsof_process *)malloc(sizeof(struct lsof_process) * sel_procs);
+    if (!user_procs) {
+        ret = LSOF_ERROR_NO_MEMORY;
+        goto cleanup;
+    }
+
     memset(user_procs, 0, sizeof(struct lsof_process) * sel_procs);
 
     for (pi = 0, upi = 0; pi < ctx->procs_size; pi++) {
@@ -343,6 +355,10 @@ enum lsof_error lsof_gather(struct lsof_context *ctx,
 
             p->files = (struct lsof_file *)malloc(sizeof(struct lsof_file) *
                                                   num_files);
+            if (!p->files) {
+                ret = LSOF_ERROR_NO_MEMORY;
+                goto cleanup;
+            }
             memset(p->files, 0, sizeof(struct lsof_file) * num_files);
             p->num_files = num_files;
             for (fi = 0, lf = lp->file; lf; lf = lf_next) {
@@ -429,6 +445,7 @@ enum lsof_error lsof_gather(struct lsof_context *ctx,
     ctx->cur_proc = NULL;
 
     res->processes = user_procs;
+    user_procs = NULL;
     res->num_processes = sel_procs;
 
     ctx->procs_size = ctx->procs_cap = 0;
@@ -652,6 +669,10 @@ enum lsof_error lsof_gather(struct lsof_context *ctx,
         if (pass == 0) {
             selections = (struct lsof_selection *)malloc(
                 sizeof(struct lsof_selection) * num_selections);
+            if (!selections) {
+                ret = LSOF_ERROR_NO_MEMORY;
+                goto cleanup;
+            }
             memset(selections, 0,
                    sizeof(struct lsof_selection) * num_selections);
             res->selections = selections;
@@ -661,7 +682,21 @@ enum lsof_error lsof_gather(struct lsof_context *ctx,
 
     /* Params */
     *result = res;
+    res = NULL;
+    ret = LSOF_SUCCESS;
 
+cleanup:
+    /* Cleanup all allocated resources on failure */
+    if (user_procs) {
+        for (int j = 0; j < upi; j++) {
+            CLEAN(user_procs[j].files);
+        }
+        CLEAN(user_procs);
+    }
+    if (res) {
+        CLEAN(res->selections);
+        CLEAN(res);
+    }
     return ret;
 }
 
@@ -687,6 +722,11 @@ void lsof_destroy(struct lsof_context *ctx) {
     }
     CLEAN(Suid);
     CLEAN(Nmlst);
+    for (i = 0; i < NCmdRxU; i++) {
+        regfree(&CmdRx[i].cx);
+        CLEAN(CmdRx[i].exp);
+    }
+    CLEAN(CmdRx);
 
     /* Free temporary */
     CLEAN(Namech);
@@ -890,13 +930,7 @@ enum lsof_error lsof_select_process_regex(struct lsof_context *ctx, char *x) {
         /*
          * More CmdRx[] space must be assigned.
          */
-        NCmdRxA += 32;
-        xl = (MALLOC_S)(ctx->cmd_regex_cap * sizeof(lsof_rx_t));
-        if (CmdRx)
-            CmdRx = (lsof_rx_t *)realloc((MALLOC_P *)CmdRx, xl);
-        else
-            CmdRx = (lsof_rx_t *)malloc(xl);
-        if (!CmdRx) {
+        if (grow_array((void **)&CmdRx, &NCmdRxA, sizeof(lsof_rx_t), 32)) {
             if (ctx->err) {
                 (void)fprintf(ctx->err, "%s: no space for regexp: ", Pn);
                 safestrprt(x, ctx->err, 1);
@@ -907,7 +941,6 @@ enum lsof_error lsof_select_process_regex(struct lsof_context *ctx, char *x) {
         }
     }
     i = NCmdRxU;
-    CmdRx[i].exp = xp;
     /*
      * Compile the expression.
      */
@@ -926,6 +959,7 @@ enum lsof_error lsof_select_process_regex(struct lsof_context *ctx, char *x) {
      */
     CmdRx[i].mc = 0;
     CmdRx[i].exp = xp;
+    xp = NULL;
     NCmdRxU++;
 
     /** Update selection flags for inclusion */
@@ -968,15 +1002,7 @@ enum lsof_error lsof_select_pid_pgid(struct lsof_context *ctx, int32_t id,
      * Allocate table table space.
      */
     if (*size >= *cap) {
-        *cap += 10;
-        if (!(*sel))
-            *sel = (struct int_lst *)malloc(
-                (MALLOC_S)(sizeof(struct int_lst) * (*cap)));
-        else
-            *sel = (struct int_lst *)realloc(
-                (MALLOC_P *)(*sel),
-                (MALLOC_S)(sizeof(struct int_lst) * (*cap)));
-        if (!(*sel)) {
+        if (grow_array((void **)sel, cap, sizeof(struct int_lst), 10)) {
             if (ctx->err) {
                 (void)fprintf(ctx->err, "%s: no space for %d process%s IDs", Pn,
                               *cap, is_pid ? "" : " group");
@@ -1052,13 +1078,7 @@ enum lsof_error lsof_select_uid_login(struct lsof_context *ctx, uint32_t uid,
      * Allocate space for User IDentifier.
      */
     if (Nuid >= Mxuid) {
-        Mxuid += 10;
-        len = (MALLOC_S)(Mxuid * sizeof(struct seluid));
-        if (!Suid)
-            Suid = (struct seluid *)malloc(len);
-        else
-            Suid = (struct seluid *)realloc((MALLOC_P *)Suid, len);
-        if (!Suid) {
+        if (grow_array((void **)&Suid, &Mxuid, sizeof(struct seluid), 10)) {
             if (ctx->err) {
                 (void)fprintf(ctx->err, "%s: no space for UIDs", Pn);
             }
