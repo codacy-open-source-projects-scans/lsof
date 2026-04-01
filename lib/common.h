@@ -1158,6 +1158,7 @@ struct lsof_context {
     /* hash by clone buckets */
     struct hsfile *sfile_hash_clone;
     int sfile_hash_clone_count;
+    int sfile_hash_done;
 
     /* zone arguments supplied with -z */
     znhash_t **sel_zone;
@@ -1331,7 +1332,7 @@ struct lsof_context {
     struct lproc *procs;
     /** Length and capacity of `procs` */
     size_t procs_size;
-    size_t procs_cap;
+    int procs_cap;
 
     /** Pointer to current file */
     struct lfile *cur_file;
@@ -1342,6 +1343,21 @@ struct lsof_context {
     FILE *err;
     char *program_name;
     int warn; /* 1=suppress warnings */
+
+    /** Child process state for doinchild() */
+    pid_t child_pid;
+    int child_pipes[4];
+
+#    if defined(HASNLIST)
+    /** Default drive_Nl for get_Nl_value() */
+    struct drive_Nl *build_Nl;
+#    endif /* defined(HASNLIST) */
+
+    /** Readlink() state */
+    char *readlink_op;
+    int readlink_ss;
+    char **readlink_stk;
+    int readlink_sx;
 
     /** dialect specific fields, see dlsof.h */
     struct lsof_context_dialect dialect;
@@ -1358,6 +1374,8 @@ struct lsof_context {
 #    define Plf (ctx->prev_file)
 /* Length of local processes */
 #    define Nlproc (ctx->procs_size)
+/* Capacity of Lproc */
+#    define Mxlproc (ctx->procs_cap)
 /* Error output */
 #    define Pn (ctx->program_name)
 /* Suppress warnings */
@@ -1516,6 +1534,7 @@ struct lsof_context {
 #    define HbyNmCt (ctx->sfile_hash_name_count)
 #    define HbyCd (ctx->sfile_hash_clone)
 #    define HbyCdCt (ctx->sfile_hash_clone_count)
+#    define Hs (ctx->sfile_hash_done)
 /* solaris zone */
 #    define ZoneArg (ctx->sel_zone)
 /* command name limit */
@@ -1532,6 +1551,17 @@ struct lsof_context {
 #    define Foffset (ctx->show_offset)
 /* -s option status */
 #    define Fsize (ctx->show_size)
+/* child process state */
+#    define Cpid (ctx->child_pid)
+#    define Pipes (ctx->child_pipes)
+#    if defined(HASNLIST)
+#        define Build_Nl (ctx->build_Nl)
+#    endif /* defined(HASNLIST) */
+/* Readlink() state */
+#    define Readlink_op (ctx->readlink_op)
+#    define Readlink_ss (ctx->readlink_ss)
+#    define Readlink_stk (ctx->readlink_stk)
+#    define Readlink_sx (ctx->readlink_sx)
 
 /* Utility macro to free if non-null and set the pointer to null */
 #    define CLEAN(ptr)                                                         \

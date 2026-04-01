@@ -39,6 +39,14 @@
 #    define API_EXPORT
 #endif
 
+/*
+ * Default weak implementation of dialect-specific cleanup.
+ * Dialects can override this with a strong implementation.
+ */
+void __attribute__((weak)) lsof_dialect_destroy(struct lsof_context *ctx) {
+    (void)ctx; /* unused in default implementation */
+}
+
 API_EXPORT
 int lsof_get_api_version() { return LSOF_API_VERSION; }
 
@@ -54,6 +62,9 @@ struct lsof_context *lsof_new() {
     if (ctx) {
         /* Initialization */
         memset(ctx, 0, sizeof(struct lsof_context));
+        /* Initialize pipes to -1 */
+        ctx->child_pipes[0] = ctx->child_pipes[1] = ctx->child_pipes[2] =
+            ctx->child_pipes[3] = -1;
 
         if (!(Namech = (char *)malloc(MAXPATHLEN + 1))) {
             free(ctx);
@@ -763,6 +774,87 @@ void lsof_destroy(struct lsof_context *ctx) {
     }
     CLEAN(UdpSt);
     CLEAN(Pn);
+
+    /* Free fd list */
+    {
+        struct fd_lst *flp, *flp_next;
+        for (flp = Fdl; flp; flp = flp_next) {
+            flp_next = flp->next;
+            CLEAN(flp);
+        }
+        Fdl = NULL;
+    }
+
+    /* Free network address list */
+    {
+        struct nwad *np, *np_next;
+        for (np = Nwad; np; np = np_next) {
+            np_next = np->next;
+            CLEAN(np->arg);
+            CLEAN(np->proto);
+            CLEAN(np);
+        }
+        Nwad = NULL;
+    }
+
+    /* Free sfile list */
+    {
+        struct sfile *sfp, *sfp_next;
+        for (sfp = Sfile; sfp; sfp = sfp_next) {
+            sfp_next = sfp->next;
+            CLEAN(sfp->aname);
+            CLEAN(sfp->name);
+            CLEAN(sfp->devnm);
+            CLEAN(sfp);
+        }
+        Sfile = NULL;
+    }
+
+    /* Free hashSfile hash buckets */
+    CLEAN(HbyFdi);
+    HbyFdiCt = 0;
+    CLEAN(HbyFrd);
+    HbyFrdCt = 0;
+    CLEAN(HbyFsd);
+    HbyFsdCt = 0;
+    CLEAN(HbyNm);
+    HbyNmCt = 0;
+    Hs = 0;
+
+    /* Free process array and all associated resources */
+    if (Lproc) {
+        for (i = 0; i < Nlproc; i++) {
+            struct lproc *lp = &Lproc[i];
+            struct lfile *lf, *lf_next;
+            /* Free command name */
+            CLEAN(lp->cmd);
+#if defined(HASSELINUX)
+            CLEAN(lp->cntx);
+#endif
+#if defined(HASTASKS)
+            CLEAN(lp->tcmd);
+#endif
+#if defined(HASZONES)
+            CLEAN(lp->zn);
+#endif
+            /* Free file list */
+            for (lf = lp->file; lf; lf = lf_next) {
+                lf_next = lf->next;
+                CLEAN(lf->nm);
+                CLEAN(lf->nma);
+                CLEAN(lf->dev_ch);
+                CLEAN(lf->fsdir);
+                CLEAN(lf->fsdev);
+                CLEAN(lf);
+            }
+        }
+        CLEAN(Lproc);
+    }
+    Nlproc = 0;
+    ctx->procs_cap = 0;
+
+    /* Call dialect-specific cleanup */
+    lsof_dialect_destroy(ctx);
 
     CLEAN(ctx);
 }
