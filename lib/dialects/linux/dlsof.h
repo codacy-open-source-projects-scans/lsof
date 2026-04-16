@@ -209,6 +209,21 @@ struct llock {
     struct llock *next;
 };
 
+#    if defined(HASMNTSUP)
+typedef struct mntsup {
+    char *dir_name;      /* mounted directory name */
+    size_t dir_name_len; /* strlen(dir_name) */
+    dev_t dev;           /* device number */
+    int ln;              /* line on which defined */
+    struct mntsup *next; /* next entry */
+} mntsup_t;
+
+#        define HASHMNT                                                        \
+            128 /* mount supplement hash bucket count                          \
+                 * !!!MUST BE A POWER OF 2!!! */
+
+#    endif /* defined(HASMNTSUP) */
+
 struct lsof_context_dialect {
     /* dnode.c - lock hash table */
     struct llock **lock_hash;
@@ -223,9 +238,22 @@ struct lsof_context_dialect {
     /* dnode.c - field parser state */
     char **field_ptrs;
     int field_ptrs_alloc;
-    /* dnode.c - lock stream buffer */
-    char *lock_stream_buf;
-    size_t lock_stream_buf_sz;
+    /* dproc.c - /proc/FD/fd buffer */
+    char *fd_path_buf;
+    int fd_path_buf_sz;
+    /* dproc.c - /proc/FD/fdinfo buffer */
+    char *fdinfo_path_buf;
+    int fdinfo_path_buf_sz;
+    /* dproc.c - /proc/FD/fdinfo/%d buffer */
+    char *fdinfo_entry_path_buf;
+    int fdinfo_entry_path_buf_sz;
+    /* dproc.c - /proc/FD temp buffer */
+    char *temp_path_buf;
+    int temp_path_buf_sz;
+#    if defined(HASMNTSUP)
+    mntsup_t **mntsup_hash; /* mount supplement
+                             * hash buckets */
+#    endif                  /* defined(HASMNTSUP) */
 };
 
 /* Dialect-specific cleanup function */
@@ -246,8 +274,23 @@ void lsof_dialect_destroy(struct lsof_context *ctx);
 #    define Fp (ctx->dialect.field_ptrs)
 #    define Fpa (ctx->dialect.field_ptrs_alloc)
 
-/* Lock stream buffer macros */
-#    define Vbuf (ctx->dialect.lock_stream_buf)
-#    define Vsz (ctx->dialect.lock_stream_buf_sz)
+/* /proc/FD/fd path buffer macros */
+#    define Dpath (ctx->dialect.fd_path_buf)
+#    define Dpathl (ctx->dialect.fd_path_buf_sz)
+
+/* /proc/FD/fdinfo path buffer macros */
+#    define Ipath (ctx->dialect.fdinfo_path_buf)
+#    define Ipathl (ctx->dialect.fdinfo_path_buf_sz)
+
+/* /proc/FD/fdinfo/%d path buffer macros */
+#    define Pathi (ctx->dialect.fdinfo_entry_path_buf)
+#    define Pathil (ctx->dialect.fdinfo_entry_path_buf_sz)
+
+/* /proc/FD temp path buffer macros */
+#    define Path (ctx->dialect.temp_path_buf)
+#    define Pathl (ctx->dialect.temp_path_buf_sz)
+
+/* mount supplement hash buckets */
+#    define MSHash (ctx->dialect.mntsup_hash)
 
 #endif /* LINUX_LSOF_H	*/

@@ -86,9 +86,40 @@ void lsof_dialect_destroy(struct lsof_context *ctx) {
         Fpa = 0;
     }
 
-    /* Free lock stream buffer */
-    if (Vbuf) {
-        CLEAN(Vbuf);
-        Vsz = 0;
+    /* Free /proc/FD/fd buffer */
+    if (Dpath) {
+        CLEAN(Dpath);
+        Dpathl = 0;
     }
+
+    /* Free /proc/FD/fdinfo buffer */
+    if (Ipath) {
+        CLEAN(Ipath);
+        Ipathl = 0;
+    }
+
+    /* Free /proc/FD/fdinfo/%d buffer */
+    if (Pathi) {
+        CLEAN(Pathi);
+        Pathil = 0;
+    }
+
+    /* Free /proc/FD/ temp buffer */
+    if (Path) {
+        CLEAN(Path);
+        Pathl = 0;
+    }
+#if defined(HASMNTSUP)
+    if (MSHash) {
+        for (int h = 0; h < HASHMNT; h++) {
+            mntsup_t *mp, *mpn;
+            for (mp = MSHash[h]; mp; mp = mpn) {
+                mpn = mp->next;
+                CLEAN(mp->dir_name);
+                CLEAN(mp);
+            }
+        }
+        CLEAN(MSHash);
+    }
+#endif
 }

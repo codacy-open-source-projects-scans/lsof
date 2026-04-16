@@ -208,22 +208,21 @@ static MALLOC_S alloc_cbf(struct lsof_context *ctx, /* context */
  */
 
 void gather_proc_info(struct lsof_context *ctx) {
-    char *cmd, *tcmd;
-    char cmdbuf[MAXPATHLEN];
+    char *cmd = NULL, *tcmd;
     struct dirent *dp;
     unsigned char ht, pidts;
     int n, nl, pgid, pid, ppid, prv, rv, tid, tpgid, tppid, tx;
-    static char *path = (char *)NULL;
-    static int pathl = 0;
-    static char *pidpath = (char *)NULL;
-    static MALLOC_S pidpathl = 0;
-    static MALLOC_S pidx = 0;
-    static DIR *ps = (DIR *)NULL;
+    char *path = (char *)NULL;
+    int pathl = 0;
+    char *pidpath = (char *)NULL;
+    MALLOC_S pidpathl = 0;
+    MALLOC_S pidx = 0;
+    DIR *ps = (DIR *)NULL;
     struct stat sb;
-    static char *taskpath = (char *)NULL;
-    static int taskpathl = 0;
-    static char *tidpath = (char *)NULL;
-    static int tidpathl = 0;
+    char *taskpath = (char *)NULL;
+    int taskpathl = 0;
+    char *tidpath = (char *)NULL;
+    int tidpathl = 0;
     DIR *ts;
     UID_ARG uid;
 
@@ -333,6 +332,9 @@ void gather_proc_info(struct lsof_context *ctx) {
          * Get the PID's command name.
          */
         (void)make_proc_path(ctx, pidpath, n, &path, &pathl, "stat");
+
+        /* Free previous cmd buffer */
+        CLEAN(cmd);
         if ((prv = read_id_stat(ctx, path, pid, &cmd, &ppid, &pgid)) < 0)
             cmd = NULL; /* NULL means failure to get command name */
 
@@ -346,16 +348,6 @@ void gather_proc_info(struct lsof_context *ctx) {
          * options work properly.
          */
         else if (!IgnTasks && (Selflags & SELTASK)) {
-            /*
-             * Copy cmd before next call to read_id_stat due to static
-             * variables
-             */
-            if (cmd) {
-                strncpy(cmdbuf, cmd, sizeof(cmdbuf) - 1);
-                cmdbuf[sizeof(cmdbuf) - 1] = '\0';
-                cmd = cmdbuf;
-            }
-
             (void)make_proc_path(ctx, pidpath, n, &taskpath, &taskpathl,
                                  "task");
             tx = n + 4;
@@ -434,6 +426,17 @@ void gather_proc_info(struct lsof_context *ctx) {
                 Lp->tid = 0;
             }
         }
+    }
+
+    /* cleanup buffers */
+    CLEAN(path);
+    CLEAN(pidpath);
+    CLEAN(taskpath);
+    CLEAN(tidpath);
+    CLEAN(cmd);
+    if (ps) {
+        closedir(ps);
+        ps = NULL;
     }
 }
 
@@ -819,20 +822,15 @@ static int nm2id(char *nm, /* pointer to name */
 
 FILE *open_proc_stream(struct lsof_context *ctx, /* context */
                        char *p,                  /* pointer to path to open */
-                       char *m,    /* pointer to mode -- e.g., "r" */
-                       char **buf, /* pointer tp setvbuf() address
-                                    * (NULL if none) */
-                       size_t *sz, /* setvbuf() size (0 if none or if
-                                    * getpagesize() desired */
-                       int act)    /* fopen() failure action:
-                                    *     0 : return (FILE *)NULL
-                                    *   <>0 : fprintf() an error message
-                                    *         and Error()
-                                    */
+                       char *m, /* pointer to mode -- e.g., "r" */
+                       int act) /* fopen() failure action:
+                                 *     0 : return (FILE *)NULL
+                                 *   <>0 : fprintf() an error message
+                                 *         and Error()
+                                 */
 {
-    FILE *fs;                      /* opened stream */
-    static size_t psz = (size_t)0; /* page size */
-    size_t tsz;                    /* temporary size */
+    FILE *fs;               /* opened stream */
+    size_t psz = (size_t)0; /* page size */
     /*
      * Open the stream.
      */
@@ -844,36 +842,15 @@ FILE *open_proc_stream(struct lsof_context *ctx, /* context */
         Error(ctx);
     }
     /*
-     * Return the stream if no buffer change is required.
-     */
-    if (!buf)
-        return (fs);
-    /*
      * Determine the buffer size required.
      */
-    if (!(tsz = *sz)) {
-        if (!psz)
-            psz = getpagesize();
-        tsz = psz;
-    }
+    psz = getpagesize();
     /*
-     * Allocate a buffer for the stream, as required.
+     * Setup stream buffering.
      */
-    if (!*buf) {
-        if (!(*buf = (char *)malloc((MALLOC_S)tsz))) {
-            (void)fprintf(stderr,
-                          "%s: can't allocate %d bytes for %s stream buffer\n",
-                          Pn, (int)tsz, p);
-            Error(ctx);
-        }
-        *sz = tsz;
-    }
-    /*
-     * Assign the buffer to the stream.
-     */
-    if (setvbuf(fs, *buf, _IOFBF, tsz)) {
+    if (setvbuf(fs, NULL, _IOFBF, psz)) {
         (void)fprintf(stderr, "%s: setvbuf(%s)=%d failure: %s\n", Pn, p,
-                      (int)tsz, strerror(errno));
+                      (int)psz, strerror(errno));
         Error(ctx);
     }
     return (fs);
@@ -898,23 +875,15 @@ static int process_id(struct lsof_context *ctx, /* context */
                       char *tcmd)  /* task command, if non-NULL) */
 {
     int av = 0;
-    static char *dpath = (char *)NULL;
-    static int dpathl = 0;
     short efs, enls, enss, lnk, oty, pn, pss, sf;
     int fd, i, ls = 0, n, ss, sv;
     struct l_fdinfo fi;
     DIR *fdp;
     struct dirent *fp;
-    static char *ipath = (char *)NULL;
-    static int ipathl = 0;
     int j = 0;
     struct lfile *lfr;
     struct stat lsb, sb;
     char nmabuf[MAXPATHLEN + 1], pbuf[MAXPATHLEN + 1];
-    static char *path = (char *)NULL;
-    static int pathl = 0;
-    static char *pathi = (char *)NULL;
-    static int pathil = 0;
     char *rest;
     int txts = 0;
     int enss_fd = 0;
@@ -970,9 +939,9 @@ static int process_id(struct lsof_context *ctx, /* context */
      */
     efs = 0;
     if (!Ckscko) {
-        (void)make_proc_path(ctx, idp, idpl, &path, &pathl, "cwd");
+        (void)make_proc_path(ctx, idp, idpl, &Path, &Pathl, "cwd");
         alloc_lfile(ctx, LSOF_FD_CWD, -1);
-        if (getlinksrc(path, pbuf, sizeof(pbuf), (char **)NULL) < 1) {
+        if (getlinksrc(Path, pbuf, sizeof(pbuf), (char **)NULL) < 1) {
             if (!Fwarn) {
                 zeromem((char *)&sb, sizeof(sb));
                 lnk = ss = 0;
@@ -992,10 +961,10 @@ static int process_id(struct lsof_context *ctx, /* context */
             } else {
                 ss = SB_ALL;
                 if (HasNFS) {
-                    if ((sv = statsafely(ctx, path, &sb)))
+                    if ((sv = statsafely(ctx, Path, &sb)))
                         sv = statEx(ctx, pbuf, &sb, &ss);
                 } else
-                    sv = stat(path, &sb);
+                    sv = stat(Path, &sb);
                 if (sv) {
                     ss = 0;
                     if (!Fwarn) {
@@ -1008,7 +977,7 @@ static int process_id(struct lsof_context *ctx, /* context */
             }
         }
         if (pn) {
-            (void)process_proc_node(ctx, lnk ? pbuf : path, path, &sb, ss,
+            (void)process_proc_node(ctx, lnk ? pbuf : Path, Path, &sb, ss,
                                     (struct stat *)NULL, 0);
             if (Lf->sf)
                 link_lfile(ctx);
@@ -1019,9 +988,9 @@ static int process_id(struct lsof_context *ctx, /* context */
      */
     lnk = ss = 0;
     if (!Ckscko) {
-        (void)make_proc_path(ctx, idp, idpl, &path, &pathl, "root");
+        (void)make_proc_path(ctx, idp, idpl, &Path, &Pathl, "root");
         alloc_lfile(ctx, LSOF_FD_ROOT_DIR, -1);
-        if (getlinksrc(path, pbuf, sizeof(pbuf), (char **)NULL) < 1) {
+        if (getlinksrc(Path, pbuf, sizeof(pbuf), (char **)NULL) < 1) {
             if (!Fwarn) {
                 zeromem((char *)&sb, sizeof(sb));
                 (void)snpf(nmabuf, sizeof(nmabuf), "(readlink: %s)",
@@ -1039,10 +1008,10 @@ static int process_id(struct lsof_context *ctx, /* context */
             else {
                 ss = SB_ALL;
                 if (HasNFS) {
-                    if ((sv = statsafely(ctx, path, &sb)))
+                    if ((sv = statsafely(ctx, Path, &sb)))
                         sv = statEx(ctx, pbuf, &sb, &ss);
                 } else
-                    sv = stat(path, &sb);
+                    sv = stat(Path, &sb);
                 if (sv) {
                     ss = 0;
                     if (!Fwarn) {
@@ -1055,7 +1024,7 @@ static int process_id(struct lsof_context *ctx, /* context */
             }
         }
         if (pn) {
-            (void)process_proc_node(ctx, lnk ? pbuf : path, path, &sb, ss,
+            (void)process_proc_node(ctx, lnk ? pbuf : Path, Path, &sb, ss,
                                     (struct stat *)NULL, 0);
             if (Lf->sf)
                 link_lfile(ctx);
@@ -1066,9 +1035,9 @@ static int process_id(struct lsof_context *ctx, /* context */
      */
     lnk = ss = txts = 0;
     if (!Ckscko) {
-        (void)make_proc_path(ctx, idp, idpl, &path, &pathl, "exe");
+        (void)make_proc_path(ctx, idp, idpl, &Path, &Pathl, "exe");
         alloc_lfile(ctx, LSOF_FD_PROGRAM_TEXT, -1);
-        if (getlinksrc(path, pbuf, sizeof(pbuf), (char **)NULL) < 1) {
+        if (getlinksrc(Path, pbuf, sizeof(pbuf), (char **)NULL) < 1) {
             zeromem((void *)&sb, sizeof(sb));
             if (!Fwarn) {
                 if ((errno != ENOENT) || uid) {
@@ -1088,13 +1057,13 @@ static int process_id(struct lsof_context *ctx, /* context */
             else {
                 ss = SB_ALL;
                 if (HasNFS) {
-                    if ((sv = statsafely(ctx, path, &sb))) {
+                    if ((sv = statsafely(ctx, Path, &sb))) {
                         sv = statEx(ctx, pbuf, &sb, &ss);
                         if (!sv && (ss & SB_DEV) && (ss & SB_INO))
                             txts = 1;
                     }
                 } else
-                    sv = stat(path, &sb);
+                    sv = stat(Path, &sb);
                 if (sv) {
                     ss = 0;
                     if (!Fwarn) {
@@ -1108,7 +1077,7 @@ static int process_id(struct lsof_context *ctx, /* context */
             }
         }
         if (pn) {
-            (void)process_proc_node(ctx, lnk ? pbuf : path, path, &sb, ss,
+            (void)process_proc_node(ctx, lnk ? pbuf : Path, Path, &sb, ss,
                                     (struct stat *)NULL, 0);
             if (Lf->sf)
                 link_lfile(ctx);
@@ -1118,8 +1087,8 @@ static int process_id(struct lsof_context *ctx, /* context */
      * Process the ID's memory map info.
      */
     if (!Ckscko) {
-        (void)make_proc_path(ctx, idp, idpl, &path, &pathl, "maps");
-        (void)process_proc_map(ctx, path, txts ? &sb : (struct stat *)NULL,
+        (void)make_proc_path(ctx, idp, idpl, &Path, &Pathl, "maps");
+        (void)process_proc_map(ctx, Path, txts ? &sb : (struct stat *)NULL,
                                txts ? ss : 0);
     }
 
@@ -1161,17 +1130,17 @@ static int process_id(struct lsof_context *ctx, /* context */
     /*
      * Process the ID's file descriptor directory.
      */
-    if ((i = make_proc_path(ctx, idp, idpl, &dpath, &dpathl, "fd/")) < 3)
+    if ((i = make_proc_path(ctx, idp, idpl, &Dpath, &Dpathl, "fd/")) < 3)
         return (0);
-    dpath[i - 1] = '\0';
+    Dpath[i - 1] = '\0';
     if ((OffType == OFFSET_FDINFO) &&
-        ((j = make_proc_path(ctx, idp, idpl, &ipath, &ipathl, "fdinfo/")) >= 7))
+        ((j = make_proc_path(ctx, idp, idpl, &Ipath, &Ipathl, "fdinfo/")) >= 7))
         oty = 1;
     else
         oty = 0;
-    if (!(fdp = opendir(dpath))) {
+    if (!(fdp = opendir(Dpath))) {
         if (!Fwarn) {
-            (void)snpf(nmabuf, sizeof(nmabuf), "%s (opendir: %s)", dpath,
+            (void)snpf(nmabuf, sizeof(nmabuf), "%s (opendir: %s)", Dpath,
                        strerror(errno));
             alloc_lfile(ctx, LSOF_FD_NOFD, -1);
             nmabuf[sizeof(nmabuf) - 1] = '\0';
@@ -1180,14 +1149,14 @@ static int process_id(struct lsof_context *ctx, /* context */
         }
         return (0);
     }
-    dpath[i - 1] = '/';
+    Dpath[i - 1] = '/';
     while ((fp = readdir(fdp))) {
         if (nm2id(fp->d_name, &fd, &n))
             continue;
-        (void)make_proc_path(ctx, dpath, i, &path, &pathl, fp->d_name);
+        (void)make_proc_path(ctx, Dpath, i, &Path, &Pathl, fp->d_name);
         (void)alloc_lfile(ctx, LSOF_FD_NUMERIC, fd);
         efs = 0;
-        if (getlinksrc(path, pbuf, sizeof(pbuf), &rest) < 1) {
+        if (getlinksrc(Path, pbuf, sizeof(pbuf), &rest) < 1) {
             zeromem((char *)&sb, sizeof(sb));
             lnk = ss = 0;
             if (!Fwarn) {
@@ -1207,7 +1176,7 @@ static int process_id(struct lsof_context *ctx, /* context */
                 pn = 0;
             } else {
                 if (HasNFS) {
-                    if (lstatsafely(ctx, path, &lsb)) {
+                    if (lstatsafely(ctx, Path, &lsb)) {
                         enls_fd = errno;
                         (void)statEx(ctx, pbuf, &lsb, &ls);
                         enls = errno;
@@ -1215,7 +1184,7 @@ static int process_id(struct lsof_context *ctx, /* context */
                         enls = 0;
                         ls = SB_ALL;
                     }
-                    if (statsafely(ctx, path, &sb)) {
+                    if (statsafely(ctx, Path, &sb)) {
                         enss_fd = errno;
                         (void)statEx(ctx, pbuf, &sb, &ss);
                         enss = errno;
@@ -1224,9 +1193,9 @@ static int process_id(struct lsof_context *ctx, /* context */
                         ss = SB_ALL;
                     }
                 } else {
-                    ls = lstat(path, &lsb) ? 0 : SB_ALL;
+                    ls = lstat(Path, &lsb) ? 0 : SB_ALL;
                     enls = errno;
-                    ss = stat(path, &sb) ? 0 : SB_ALL;
+                    ss = stat(Path, &sb) ? 0 : SB_ALL;
                     enss = errno;
                 }
                 if (!ls && !Fwarn) {
@@ -1258,7 +1227,7 @@ static int process_id(struct lsof_context *ctx, /* context */
 
             if (oty) {
                 int fdinfo_mask = FDINFO_BASE;
-                (void)make_proc_path(ctx, ipath, j, &pathi, &pathil,
+                (void)make_proc_path(ctx, Ipath, j, &Pathi, &Pathil,
                                      fp->d_name);
 
                 if (rest && rest[0] == '[' && rest[1] == 'e' &&
@@ -1278,12 +1247,13 @@ static int process_id(struct lsof_context *ctx, /* context */
 #endif     /* defined(HASEPTOPTS) */
                 if (rest && rest[0] == '[' && rest[1] == 'p')
                     fdinfo_mask |= FDINFO_PID;
-                else if (Lf && Lf->ntype == N_REGLR && rest && *rest && strcmp(pbuf, "pidfd") == 0) {
+                else if (Lf && Lf->ntype == N_REGLR && rest && *rest &&
+                         strcmp(pbuf, "pidfd") == 0) {
                     // https://github.com/lsof-org/lsof/issues/317
                     fdinfo_mask |= FDINFO_PID;
                 }
 
-                if ((av = get_fdinfo(ctx, pathi, fdinfo_mask, &fi)) &
+                if ((av = get_fdinfo(ctx, Pathi, fdinfo_mask, &fi)) &
                     FDINFO_POS) {
                     if (efs) {
                         lfr->off = (SZOFFTYPE)fi.pos;
@@ -1308,7 +1278,7 @@ static int process_id(struct lsof_context *ctx, /* context */
 #endif /* !defined(HASNOFSFLAGS) */
             }
             if (pn) {
-                process_proc_node(ctx, lnk ? pbuf : path, path, &sb, ss, &lsb,
+                process_proc_node(ctx, lnk ? pbuf : Path, Path, &sb, ss, &lsb,
                                   ls);
                 if (Lf->ntype == N_ANON_INODE) {
                     if (rest && *rest) {
@@ -1352,15 +1322,15 @@ static int process_id(struct lsof_context *ctx, /* context */
                     // https://github.com/lsof-org/lsof/issues/317
                     // pidfd since Linux 6.9 becomes a regular file:
                     // /proc/PID/fd/FD -> pidfd:[INODE]
-                    (void)snpf(rest, sizeof(pbuf) - (rest - pbuf),
-                                "[pidfd:%d]", fi.pid);
+                    (void)snpf(rest, sizeof(pbuf) - (rest - pbuf), "[pidfd:%d]",
+                               fi.pid);
                     enter_nm(ctx, rest);
                 }
 
-               if ((Selflags & SELNLINK) &&
-                   (enss_fd == ESTALE || enls_fd == ESTALE)) {
-                   Lf->sf |= SELNLINK;
-                   (void)add_nma(ctx, " (STALE)", 8);
+                if ((Selflags & SELNLINK) &&
+                    (enss_fd == ESTALE || enls_fd == ESTALE)) {
+                    Lf->sf |= SELNLINK;
+                    (void)add_nma(ctx, " (STALE)", 8);
                 }
 
                 if (Lf->sf)
@@ -1375,7 +1345,7 @@ static int process_id(struct lsof_context *ctx, /* context */
 /*
  * compare_mntns() - compare mount namespace of this lsof process and the
  *                   target process
- * 
+ *
  * Note: mount namespace path might not be found with legacy linux kernel (e.g.
  * linux-2.6) which does not have path "/proc/self/ns" or "/proc/${pid}/ns",
  * see Commit 6b4e306aa3dc ("ns: proc files for namespace naming policy.")
@@ -1445,17 +1415,15 @@ process_proc_map(struct lsof_context *ctx, /* context */
         dev_t dev;
         INODETYPE inode;
     };
-    static struct saved_map *sm = (struct saved_map *)NULL;
+    struct saved_map *sm = (struct saved_map *)NULL;
     efsys_list_t *rep;
-    static int sma = 0;
-    static char *vbuf = (char *)NULL;
-    static size_t vsz = (size_t)0;
+    int sma = 0;
     int diff_mntns = 0;
     /*
      * Open the /proc/<pid>/maps file, assign a page size buffer to its stream,
      * and read it/
      */
-    if (!(ms = open_proc_stream(ctx, p, "r", &vbuf, &vsz, 0)))
+    if (!(ms = open_proc_stream(ctx, p, "r", 0)))
         return;
 
     /* target process in a different mount namespace from lsof process. */
@@ -1679,6 +1647,7 @@ process_proc_map(struct lsof_context *ctx, /* context */
             link_lfile(ctx);
     }
     (void)fclose(ms);
+    CLEAN(sm);
 }
 
 /*
@@ -1699,21 +1668,20 @@ static int read_id_stat(struct lsof_context *ctx, /* context */
 {
     char buf[MAXPATHLEN], *cp, *cp1, **fp;
     int ch, cx, es, pc;
-    static char *cbf = (char *)NULL;
-    static MALLOC_S cbfa = 0;
+    char *cbf = (char *)NULL;
+    MALLOC_S cbfa = 0;
     FILE *fs;
-    static char *vbuf = (char *)NULL;
-    static size_t vsz = (size_t)0;
     /*
      * Open the stat file path, assign a page size buffer to its stream,
      * and read the file's first line.
      */
-    if (!(fs = open_proc_stream(ctx, p, "r", &vbuf, &vsz, 0)))
+    if (!(fs = open_proc_stream(ctx, p, "r", 0)))
         return (-1);
     if (!(cp = fgets(buf, sizeof(buf), fs))) {
 
     read_id_stat_exit:
 
+        CLEAN(cbf);
         (void)fclose(fs);
         return (-1);
     }
@@ -1740,13 +1708,6 @@ static int read_id_stat(struct lsof_context *ctx, /* context */
         goto read_id_stat_exit;
     cp++;
     pc = 1; /* start the parenthesis balance count at 1 */
-
-    /* empty process name to avoid leaking previous process name,
-     * see issue #246
-     */
-    if (cbf) {
-        cbf[0] = '\0';
-    }
 
     /*
      * Enter the command characters safely.  Supply them from the initial read
@@ -1784,6 +1745,7 @@ static int read_id_stat(struct lsof_context *ctx, /* context */
             es = 1; /* Switch to fgetc() when a '\0' appears. */
     }
     *cmd = cbf;
+    cbf = NULL;
     /*
      * Read the remainder of the stat line if it was necessary to read command
      * characters individually from the stat file.
